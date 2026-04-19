@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+
+import argparse, boto3
+from botocore import UNSIGNED
+from botocore.config import Config
+from concurrent.futures import ThreadPoolExecutor
+import time, sys, re
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-v", "--verbose", help="Verbose mode", action="store_true")
+args = parser.parse_args()
+
+vrb = args.verbose
+
+alvo = sys.stdin.read().splitlines()
+
+s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+
+def hack(bucket):
+	bucket = re.findall(r"(?i)(?:https?://)?([a-z0-9\-\.]+)", bucket)[0]
+	if vrb: print(f"[>] TRYING: {bucket}", file=sys.stderr)
+
+	try:
+		s3.head_bucket(Bucket=bucket)
+		print(f"[+] BUCKET: {bucket}")
+	except Exception as x:
+		if vrb:
+			print(f"[#] VERBOSE: {x}", file=sys.stderr)
+		pass
+
+	#list
+	try:
+		resp = s3.list_objects_v2(Bucket=bucket, MaxKeys=5)
+		print(f"[!] LIST Permission: {bucket}")
+
+	except Exception as x:
+		if vrb:
+			print(f"[#] VERBOSE: {x}", file=sys.stderr)
+		pass
+
+	#read
+	test_files = ["index.html", ".env", "config.json", "backup.zip"]
+
+	read_ok = False
+	for f in test_files:
+		try:
+			s3.get_object(Bucket=bucket, Key=f)
+			print(f"[!] {bucket}: READ Permission: {f}")
+			read_ok = True
+			break
+		except Exception as x:
+			if vrb:
+				print(f"[#] VERBOSE: {x}", file=sys.stderr)
+			pass
+
+	if not read_ok:
+		pass
+
+	#write
+	key = f"test-{int(time.time())}.txt"
+
+	try:
+		s3.put_object(Bucket=bucket, Key=key, Body=b"test")
+		print(f"[!!!] {bucket}: WRITE Permssion : {key}")
+		#delete
+		try:
+			s3.delete_object(Bucket=bucket, Key=key)
+			print("[!] DELETE Permission: {bucket}")
+		except:
+			print("[!] DELETE failed: {bucket}")
+
+	except Exception as x:
+		if vrb:
+			print(f"[#] VERBOSE: {x}", file=sys.stderr)
+		pass
+
+with ThreadPoolExecutor(max_workers=50) as executor:
+	executor.map(hack, alvo)
